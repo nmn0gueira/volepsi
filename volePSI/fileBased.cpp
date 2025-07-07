@@ -428,9 +428,10 @@ namespace volePSI
     }
 
 
-    std::vector<std::pair<block, std::vector<u8>>> readCSV(const std::string& path, bool debug)
+    std::pair<std::vector<block>, std::vector<std::vector<u8>>> readCSV(const std::string& path, bool debug)
     {
-        std::vector<std::pair<block, std::vector<u8>>> ret;
+        std::vector<block> identifiers;
+        std::vector<std::vector<u8>> associatedValuesSet;
 
         // Assuming oc::RandomOracle is used for hashing
         oc::RandomOracle hash(sizeof(block));
@@ -465,16 +466,17 @@ namespace volePSI
             }
 
             // Store both the identifier (as block) and the associated values
-            ret.emplace_back(identifierBlock, associatedValues);
+            identifiers.emplace_back(identifierBlock);
+            associatedValuesSet.emplace_back(associatedValues);
         }
 
         if (debug)
         {
             u64 maxPrint = 40;
             std::unordered_map<block, u64> hashes;
-            for (u64 i = 0; i < ret.size(); ++i)
+            for (u64 i = 0; i < identifiers.size(); ++i)
             {
-                auto r = hashes.insert({ ret[i].first, i }); // ret[i].first is the block (identifier)
+                auto r = hashes.insert({ identifiers[i], i });
                 if (r.second == false)
                 {
                     std::cout << "duplicate at index " << i << " & " << r.first->second << std::endl;
@@ -489,7 +491,7 @@ namespace volePSI
                 throw std::runtime_error("Too many duplicates found");
         }
 
-        return ret;
+        return std::make_pair(identifiers, associatedValuesSet);
     }
 
 
@@ -530,7 +532,11 @@ namespace volePSI
             if (!quiet)
                 std::cout << "reading csv... " << std::flush;
             auto readBegin = timer.setTimePoint("");
-            std::vector<std::pair<block, std::vector<u8>>> set = readCSV(path, debug);
+
+            std::pair<std::vector<block>, std::vector<std::vector<u8>>> set = readCSV(path, debug);
+            std::vector<block> identifiers = set.first;
+            std::vector<std::vector<u8>> associatedValues = set.second;
+
             auto readEnd = timer.setTimePoint("");
             if (!quiet)
                 std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(readEnd - readBegin).count() << "ms" << std::endl;
@@ -596,8 +602,8 @@ namespace volePSI
                 std::cout << ' ' << std::chrono::duration_cast<std::chrono::milliseconds>(connEnd - connBegin).count()
                 << "ms\nValidating set sizes... " << std::flush;
             
-            u64 size = set.size();
-            if (size != cmd.getOr((r == Role::Sender) ? "senderSize" : "receiverSize", set.size()))
+            u64 size = identifiers.size();
+            if (size != cmd.getOr((r == Role::Sender) ? "senderSize" : "receiverSize", size))
                 throw std::runtime_error("File does not contain the specified set size.");
             u64 theirSize;
 
@@ -608,17 +614,17 @@ namespace volePSI
                 throw std::runtime_error("Other party's set size does not match.");
 
             u64 their_columns;
-            u64 num_columns = set[0].second.size();
-            macoro::sync_wait(chl.send(num_columns));  // ASSUMES ALL RECORDS HAVE SAME NUMBER OF VALUES
+            u64 num_columns = r == Role::Sender ? associatedValues[0].size() : cmd.get<int>("senderColumns");
+            macoro::sync_wait(chl.send(num_columns));
             macoro::sync_wait(chl.recv(their_columns));
 
-            if (their_columns != cmd.getOr((r != Role::Sender) ? "senderColumns" : "receiverColumns", theirSize))
+            if (their_columns != num_columns)
                 throw std::runtime_error("Other party's number of columns does not match.");
             
             auto valEnd = timer.setTimePoint("");
 
             if (!quiet)
-                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nrunning PSI... " << std::flush;
+                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nrunning CPSI... " << std::flush;
             
             auto byteLength = num_columns * sizeof(block);
 
@@ -626,19 +632,17 @@ namespace volePSI
             {
                 RsCpsiSender sender;
                 RsCpsiSender::Sharing ss;
-                std::vector<block> sendSet(size);
                 osuCrypto::Matrix<u8> senderValues(size, byteLength);
                 for (size_t row = 0; row < size; ++row)
                 {
-                    sendSet[row] = set[row].first;
-                    const auto& associatedValues = set[row].second; // Get the associated values (std::vector<u8>)
+                    const auto& valueRow = associatedValues[row];
                     
-                    if (associatedValues.size() != num_columns)
+                    if (valueRow.size() != num_columns)
                     {
                         throw std::runtime_error("Number of associated values does not match the expected column count.");
                     }
 
-                    std::memcpy(senderValues.data() + row * byteLength, associatedValues.data(), byteLength);
+                    std::memcpy(senderValues.data() + row * byteLength, valueRow.data(), byteLength);
                 }
 
                 if (verbose)
@@ -648,18 +652,13 @@ namespace volePSI
                 sender.init(size, theirSize, byteLength, statSetParam, seed, 1);
                 std::cout << "Init done" << std::endl;
 
-                macoro::sync_wait(sender.send(sendSet, senderValues, ss, chl));
+                macoro::sync_wait(sender.send(identifiers, senderValues, ss, chl));
                 std::cout << "send done" << std::endl;
             }
             else
             {
                 RsCpsiReceiver recv;
                 RsCpsiReceiver::Sharing rs;
-                std::vector<block> recvSet(size);
-                for (size_t row = 0; row < size; ++row)
-                {
-                    recvSet[row] = set[row].first;
-                }
 
                 if (verbose)
                     std::cout << "receiver start\n";
@@ -668,7 +667,7 @@ namespace volePSI
                 recv.init(theirSize, size, byteLength, statSetParam, seed, 1);
                 std::cout << "Init done" << std::endl;
 
-                macoro::sync_wait(recv.receive(recvSet, rs, chl));
+                macoro::sync_wait(recv.receive(identifiers, rs, chl));  // set is the same as recvSet in here unlike in sender's version
                 std::cout << "receive done" << std::endl;
             }
             macoro::sync_wait(chl.flush());
