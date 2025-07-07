@@ -16,7 +16,10 @@ int main(int argc, char** argv)
     //return 0;
     if (cmd.isSet("in"))
     {
-        volePSI::doFilePSI(cmd);
+        if (cmd.isSet("cpsi"))
+            volePSI::doFileCPSI(cmd);
+        else
+            volePSI::doFilePSI(cmd);
     }
     else if (cmd.isSet("messagePassing"))
     {
