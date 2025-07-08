@@ -494,6 +494,74 @@ namespace volePSI
         return std::make_pair(identifiers, associatedValuesSet);
     }
 
+    void writeCSVSender(std::string outPath, u64 recvSetSize, u64 num_columns, const RsCpsiSender::Sharing& sShare)
+    {
+        std::ofstream file;
+
+        // Open the output file in write mode, truncating any existing content
+        file.open(outPath, std::ios::out | std::ios::trunc);
+
+        if (file.is_open() == false)
+            throw std::runtime_error("failed to open the output file: " + outPath);
+
+
+        file << "FlagBits";
+        for (u64 j = 0; j < num_columns; ++j)
+        {
+            file << ",Value" << j;
+        }
+        file << std::endl;
+
+        for (u64 i = 0; i < recvSetSize; ++i)
+        {
+            file << sShare.mFlagBits[i];
+
+            for (u64 j = 0; j < num_columns; ++j)
+            {
+                file << "," << *(block*)&sShare.mValues(i, j);
+            }
+
+            file << std::endl; // End of row
+        }
+
+        file.close();
+        std::cout << "CSV written to " << outPath << std::endl;
+    }
+
+    void writeCSVReceiver(std::string outPath, u64 recvSetSize, u64 num_columns, const RsCpsiReceiver::Sharing& rShare)
+    {
+        std::ofstream file;
+
+        // Open the output file in write mode, truncating any existing content
+        file.open(outPath, std::ios::out | std::ios::trunc);
+
+        if (file.is_open() == false)
+            throw std::runtime_error("failed to open the output file: " + outPath);
+
+
+        file << "FlagBits";
+        for (u64 j = 0; j < num_columns; ++j)
+        {
+            file << ",Value" << j;
+        }
+        file << ",Mapping" << std::endl;
+
+        for (u64 i = 0; i < recvSetSize; ++i)
+        {
+            file << rShare.mFlagBits[i];
+
+            for (u64 j = 0; j < num_columns; ++j)
+            {
+                file << "," << *(block*)&rShare.mValues(i, j);
+            }
+
+            file << "," << rShare.mMapping[i] << std::endl;
+        }
+
+        file.close();
+        std::cout << "CSV written to " << outPath << std::endl;
+    }
+
 
     void doFileCPSI(osuCrypto::CLP& cmd)
     {
@@ -628,6 +696,7 @@ namespace volePSI
             
             auto byteLength = num_columns * sizeof(block);
 
+
             if (r == Role::Sender)
             {
                 RsCpsiSender sender;
@@ -654,6 +723,10 @@ namespace volePSI
 
                 macoro::sync_wait(sender.send(identifiers, senderValues, ss, chl));
                 std::cout << "send done" << std::endl;
+                std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
+                std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
+
+                writeCSVSender(outPath, theirSize, num_columns, ss);
             }
             else
             {
@@ -669,6 +742,10 @@ namespace volePSI
 
                 macoro::sync_wait(recv.receive(identifiers, rs, chl));  // set is the same as recvSet in here unlike in sender's version
                 std::cout << "receive done" << std::endl;
+                std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
+                std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
+                
+                writeCSVReceiver(outPath, size, num_columns, rs);
             }
             macoro::sync_wait(chl.flush());
 
@@ -684,97 +761,4 @@ namespace volePSI
             std::cout << "Try adding command line argument -debug" << std::endl;
         }
     }
-
-    /* void doFileCPSI(osuCrypto::CLP& cmd)
-    {
-        osuCrypto::Timer timer;
-        auto n = 1ull << cmd.getOr("nn", 10);
-        std::cout << "Running Circuit-PSI with " << n << " elements" << std::endl;
-
-        auto role = (volePSI::Role) cmd.getOr<int>("r", 2);
-        u64 num_columns = cmd.getOr<int>("cols", 4); // Number of columns for payload
-        auto byteLength = num_columns * sizeof(block);
-        auto ip = cmd.getOr<std::string>("ip", "localhost:1212");
-
-        // The statistical security parameter.
-        auto ssp = cmd.getOr("ssp", 40);
-        auto verbose = cmd.isSet("v");
-
-        if (role != volePSI::Role::Sender && role != volePSI::Role::Receiver)
-            throw std::runtime_error("-r tag must be set with value 0 (sender) or 1 (receiver).");
-
-    #ifdef COPROTO_ENABLE_BOOST
-        coproto::Socket chl;
-        chl = coproto::asioConnect(ip, (role == volePSI::Role::Sender));
-    #else
-        throw std::runtime_error("COPROTO_ENABLE_BOOST must be define (via cmake) to use tcp sockets. " COPROTO_LOCATION);
-    #endif
-        u64 their_n;
-        macoro::sync_wait(chl.send(n));
-        macoro::sync_wait(chl.recv(their_n));
-        auto t_start = timer.setTimePoint("");
-
-        u64 their_columns;
-        macoro::sync_wait(chl.send(num_columns));
-        macoro::sync_wait(chl.recv(their_columns));
-        if (their_columns != num_columns)
-            throw std::runtime_error("Other party's payload columns size does not match.");
-        else
-            std::cout << "Num columns match. Proceeding." << std::endl;
-
-        block seed;
-        auto seedStr = cmd.getOr<std::string>("seed", "myseed");
-        osuCrypto::RandomOracle ro(sizeof(block));
-        ro.Update(seedStr.data(), seedStr.size());
-        ro.Final(seed);
-        PRNG prng(seed);
-
-        if (role == Role::Sender)
-        {
-            u64 n_sender = n;
-            u64 n_receiver = their_n;
-
-            RsCpsiSender sender;
-            RsCpsiSender::Sharing ss;
-            std::vector<block> sendSet(n_sender);
-            osuCrypto::Matrix<u8> senderValues(sendSet.size(), byteLength);
-            std::memcpy(senderValues.data(), sendSet.data(), sendSet.size() * byteLength);
-
-            if (verbose)
-                std::cout << "sender start\n";
-            std::cout << "sender size" << n_sender << std::endl;
-            std::cout << "receiver size" << n_receiver << std::endl;
-            sender.init(n_sender, n_receiver, byteLength, ssp, seed, 1);
-            std::cout << "Init done" << std::endl;
-            prng.get<block>(sendSet);
-
-            macoro::sync_wait(sender.send(sendSet, senderValues, ss, chl));
-            std::cout << "send done" << std::endl;
-        }
-        else
-        {
-            u64 n_sender = their_n;
-            u64 n_receiver = n;
-            RsCpsiReceiver recv;
-            RsCpsiReceiver::Sharing rs;
-            std::vector<block> recvSet(n_receiver);
-
-            if (verbose)
-                std::cout << "receiver start\n";
-            std::cout << "sender size: " << n_sender << std::endl;
-            std::cout << "receiver size: " << n_receiver << std::endl;
-            recv.init(n_sender, n_receiver, byteLength, ssp, seed, 1);
-            std::cout << "Init done" << std::endl;
-            prng.get<block>(recvSet);
-
-            macoro::sync_wait(recv.receive(recvSet, rs,chl));
-            std::cout << "receive done" << std::endl;
-        }
-        macoro::sync_wait(chl.flush());
-
-        auto t_end = timer.setTimePoint("");
-        std::cout << "Bytes sent: " << chl.bytesSent() << std::endl;
-        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(t_end - t_start).count()
-                << "ms\nDone" << std::endl;
-    } */
 }
