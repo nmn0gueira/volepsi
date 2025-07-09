@@ -50,6 +50,13 @@ namespace volePSI
         return oc::toBlock(vv.data());
     }
 
+    block intStrToBlock(const std::string& buff) {
+        int64_t value = std::stoll(buff); 
+        std::array<u8, 16> vv;
+        std::memcpy(vv.data(), &value, sizeof(value));
+        return oc::toBlock(vv.data());
+    }
+
     std::vector<block> readSet(const std::string& path, FileType ft, bool debug)
     {
         std::vector<block> ret;
@@ -428,10 +435,10 @@ namespace volePSI
     }
 
 
-    std::pair<std::vector<block>, std::vector<std::vector<u8>>> readCSV(const std::string& path, bool debug)
+    std::pair<std::vector<block>, std::vector<std::vector<block>>> readCSV(const std::string& path, bool debug)
     {
         std::vector<block> identifiers;
-        std::vector<std::vector<u8>> associatedValuesSet;
+        std::vector<std::vector<block>> associatedValuesSet;
 
         // Assuming oc::RandomOracle is used for hashing
         oc::RandomOracle hash(sizeof(block));
@@ -459,10 +466,10 @@ namespace volePSI
             }
 
             // Read the rest of the columns (associated values)
-            std::vector<u8> associatedValues;
+            std::vector<block> associatedValues;
             std::string value;
             while (std::getline(lineStream, value, ',')) {
-                associatedValues.emplace_back(static_cast<u8>(std::stoi(value)));
+                associatedValues.emplace_back(intStrToBlock(value));
             }
 
             // Store both the identifier (as block) and the associated values
@@ -494,7 +501,7 @@ namespace volePSI
         return std::make_pair(identifiers, associatedValuesSet);
     }
 
-    void writeCSVSender(std::string outPath, u64 recvSetSize, u64 num_columns, const RsCpsiSender::Sharing& sShare)
+    void writeCSVSender(std::string outPath, u64 num_columns, const RsCpsiSender::Sharing& sShare)
     {
         std::ofstream file;
 
@@ -512,7 +519,7 @@ namespace volePSI
         }
         file << std::endl;
 
-        for (u64 i = 0; i < recvSetSize; ++i)
+        for (u64 i = 0; i < sShare.mFlagBits.size(); ++i)
         {
             file << sShare.mFlagBits[i];
 
@@ -528,7 +535,7 @@ namespace volePSI
         std::cout << "CSV written to " << outPath << std::endl;
     }
 
-    void writeCSVReceiver(std::string outPath, u64 recvSetSize, u64 num_columns, const RsCpsiReceiver::Sharing& rShare)
+    void writeCSVReceiver(std::string outPath, u64 num_columns, const RsCpsiReceiver::Sharing& rShare)
     {
         std::ofstream file;
 
@@ -546,7 +553,7 @@ namespace volePSI
         }
         file << ",Mapping" << std::endl;
 
-        for (u64 i = 0; i < recvSetSize; ++i)
+        for (u64 i = 0; i < rShare.mFlagBits.size(); ++i)
         {
             file << rShare.mFlagBits[i];
 
@@ -601,9 +608,9 @@ namespace volePSI
                 std::cout << "reading csv... " << std::flush;
             auto readBegin = timer.setTimePoint("");
 
-            std::pair<std::vector<block>, std::vector<std::vector<u8>>> set = readCSV(path, debug);
+            std::pair<std::vector<block>, std::vector<std::vector<block>>> set = readCSV(path, debug);
             std::vector<block> identifiers = set.first;
-            std::vector<std::vector<u8>> associatedValues = set.second;
+            std::vector<std::vector<block>> associatedValues = set.second;
 
             auto readEnd = timer.setTimePoint("");
             if (!quiet)
@@ -712,6 +719,12 @@ namespace volePSI
                     }
 
                     std::memcpy(senderValues.data() + row * byteLength, valueRow.data(), byteLength);
+                    
+                    for (u64 i = 0; i < num_columns; ++i)
+                    {
+                        std::cout << "Value[" << row << "][" << i << "] as block = " 
+                                  << *(block*)&senderValues(row, i) << std::endl;
+                    }
                 }
 
                 if (verbose)
@@ -725,8 +738,8 @@ namespace volePSI
                 std::cout << "send done" << std::endl;
                 std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
                 std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
-
-                writeCSVSender(outPath, theirSize, num_columns, ss);
+                std::cout << "sShare.mMapping size: " << ss.mMapping.size() << std::endl;
+                writeCSVSender(outPath, num_columns, ss);
             }
             else
             {
@@ -744,8 +757,8 @@ namespace volePSI
                 std::cout << "receive done" << std::endl;
                 std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
                 std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
-                
-                writeCSVReceiver(outPath, size, num_columns, rs);
+                std::cout << "rShare.mMapping size: " << rs.mMapping.size() << std::endl;
+                writeCSVReceiver(outPath, num_columns, rs);
             }
             macoro::sync_wait(chl.flush());
 
