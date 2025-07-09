@@ -440,7 +440,6 @@ namespace volePSI
         std::vector<block> identifiers;
         std::vector<std::vector<block>> associatedValuesSet;
 
-        // Assuming oc::RandomOracle is used for hashing
         oc::RandomOracle hash(sizeof(block));
 
         std::ifstream file(path, std::ios::in);
@@ -453,27 +452,27 @@ namespace volePSI
         {
             std::istringstream lineStream(line);
             std::string identifier;
-            std::getline(lineStream, identifier, ','); // Read the first column (identifier)
+            std::getline(lineStream, identifier, ',');
 
-            block identifierBlock;
-            // Check if identifier is hex or should be hashed
+            // Trim whitespace from identifier (useful for receiver csv with only one column)
+            identifier.erase(0, identifier.find_first_not_of(" \t\r\n"));
+            identifier.erase(identifier.find_last_not_of(" \t\r\n") + 1);     
+            
             if (isHexBlock(identifier)) {
-                identifierBlock = hexToBlock(identifier);
+                identifiers.push_back(hexToBlock(identifier));
             } else {
+                identifiers.emplace_back();
                 hash.Reset();
                 hash.Update(identifier.data(), identifier.size());
-                hash.Final(identifierBlock);
+                hash.Final(identifiers.back());
             }
 
-            // Read the rest of the columns (associated values)
             std::vector<block> associatedValues;
             std::string value;
             while (std::getline(lineStream, value, ',')) {
                 associatedValues.emplace_back(intStrToBlock(value));
             }
 
-            // Store both the identifier (as block) and the associated values
-            identifiers.emplace_back(identifierBlock);
             associatedValuesSet.emplace_back(associatedValues);
         }
 
