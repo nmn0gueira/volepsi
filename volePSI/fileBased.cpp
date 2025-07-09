@@ -501,7 +501,7 @@ namespace volePSI
         return std::make_pair(identifiers, associatedValuesSet);
     }
 
-    void writeCSVSender(std::string outPath, u64 num_columns, const RsCpsiSender::Sharing& sShare)
+    void writeShares(std::string outPath, u64 num_columns, const oc::BitVector& mFlagBits, const oc::Matrix<u8>& mValues)
     {
         std::ofstream file;
 
@@ -511,31 +511,23 @@ namespace volePSI
         if (file.is_open() == false)
             throw std::runtime_error("failed to open the output file: " + outPath);
 
-
-        file << "FlagBits";
-        for (u64 j = 0; j < num_columns; ++j)
+        for (u64 i = 0; i < mFlagBits.size(); ++i)
         {
-            file << ",Value" << j;
-        }
-        file << std::endl;
-
-        for (u64 i = 0; i < sShare.mFlagBits.size(); ++i)
-        {
-            file << sShare.mFlagBits[i];
+            file << mFlagBits[i];
 
             for (u64 j = 0; j < num_columns; ++j)
             {
-                file << "," << *(block*)&sShare.mValues(i, j * sizeof(block));
+                file << "," << *(block*)&mValues(i, j * sizeof(block));
             }
-
-            file << std::endl; // End of row
+            
+            file << std::endl;
         }
 
         file.close();
         std::cout << "CSV written to " << outPath << std::endl;
     }
 
-    void writeCSVReceiver(std::string outPath, u64 num_columns, const RsCpsiReceiver::Sharing& rShare)
+    void writeMapping(std::string outPath, const std::vector<u64>& mMapping)
     {
         std::ofstream file;
 
@@ -545,24 +537,9 @@ namespace volePSI
         if (file.is_open() == false)
             throw std::runtime_error("failed to open the output file: " + outPath);
 
-
-        file << "FlagBits";
-        for (u64 j = 0; j < num_columns; ++j)
+        for (u64 i = 0; i < mMapping.size(); ++i)
         {
-            file << ",Value" << j;
-        }
-        file << ",Mapping" << std::endl;
-
-        for (u64 i = 0; i < rShare.mFlagBits.size(); ++i)
-        {
-            file << rShare.mFlagBits[i];
-
-            for (u64 j = 0; j < num_columns; ++j)
-            {
-                file << "," << *(block*)&rShare.mValues(i, j * sizeof(block));
-            }
-
-            file << "," << rShare.mMapping[i] << std::endl;
+            file << mMapping[i] << std::endl;
         }
 
         file.close();
@@ -733,7 +710,7 @@ namespace volePSI
                 std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
                 std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
                 std::cout << "sShare.mMapping size: " << ss.mMapping.size() << std::endl;
-                writeCSVSender(outPath, num_columns, ss);
+                writeShares(outPath, num_columns, ss.mFlagBits, ss.mValues);
             }
             else
             {
@@ -752,7 +729,8 @@ namespace volePSI
                 std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
                 std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
                 std::cout << "rShare.mMapping size: " << rs.mMapping.size() << std::endl;
-                writeCSVReceiver(outPath, num_columns, rs);
+                writeShares(outPath, num_columns, rs.mFlagBits, rs.mValues);
+                writeMapping(outPath.substr(0, outPath.find_last_of('/') + 1) + "mapping.out", rs.mMapping);
             }
             macoro::sync_wait(chl.flush());
 
