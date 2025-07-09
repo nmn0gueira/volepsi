@@ -52,7 +52,7 @@ namespace volePSI
 
     block intStrToBlock(const std::string& buff) {
         int64_t value = std::stoll(buff); 
-        std::array<u8, 16> vv;
+        std::array<u8, 16> vv = {};
         std::memcpy(vv.data(), &value, sizeof(value));
         return oc::toBlock(vv.data());
     }
@@ -525,7 +525,7 @@ namespace volePSI
 
             for (u64 j = 0; j < num_columns; ++j)
             {
-                file << "," << *(block*)&sShare.mValues(i, j);
+                file << "," << *(block*)&sShare.mValues(i, j * sizeof(block));
             }
 
             file << std::endl; // End of row
@@ -559,7 +559,7 @@ namespace volePSI
 
             for (u64 j = 0; j < num_columns; ++j)
             {
-                file << "," << *(block*)&rShare.mValues(i, j);
+                file << "," << *(block*)&rShare.mValues(i, j * sizeof(block));
             }
 
             file << "," << rShare.mMapping[i] << std::endl;
@@ -718,13 +718,7 @@ namespace volePSI
                         throw std::runtime_error("Number of associated values does not match the expected column count.");
                     }
 
-                    std::memcpy(senderValues.data() + row * byteLength, valueRow.data(), byteLength);
-                    
-                    for (u64 i = 0; i < num_columns; ++i)
-                    {
-                        std::cout << "Value[" << row << "][" << i << "] as block = " 
-                                  << *(block*)&senderValues(row, i) << std::endl;
-                    }
+                    std::memcpy(senderValues.data() + row * byteLength, valueRow.data(), byteLength);      
                 }
 
                 if (verbose)
