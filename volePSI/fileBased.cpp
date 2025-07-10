@@ -248,7 +248,7 @@ namespace volePSI
             bool tls = cmd.isSet("tls");
             bool quiet = cmd.isSet("quiet");
             bool verbose = cmd.isSet("v");
-            int numThreads = cmd.getOr<int>("nt", 1);
+            u64 numThreads = cmd.getOr("nt", 1);
 
 
             block seed;
@@ -558,7 +558,7 @@ namespace volePSI
             bool tls = cmd.isSet("tls");
             bool quiet = cmd.isSet("quiet");
             bool verbose = cmd.isSet("v");
-            int numThreads = cmd.getOr<int>("nt", 1);
+            u64 numThreads = cmd.getOr("nt", 1);
 
             block seed;
             if (cmd.hasValue("seed"))
