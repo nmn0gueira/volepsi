@@ -248,6 +248,8 @@ namespace volePSI
             bool tls = cmd.isSet("tls");
             bool quiet = cmd.isSet("quiet");
             bool verbose = cmd.isSet("v");
+            int numThreads = cmd.getOr<int>("nt", 1);
+
 
             block seed;
             if (cmd.hasValue("seed"))
@@ -385,7 +387,7 @@ namespace volePSI
 
                 sender.mDebug = debug;
                 sender.setMultType(type);
-                sender.init(set.size(), theirSize, statSetParam, seed, mal, 1);
+                sender.init(set.size(), theirSize, statSetParam, seed, mal, numThreads);
                 macoro::sync_wait(sender.run(set, chl));
                 macoro::sync_wait(chl.flush());
 
@@ -400,7 +402,7 @@ namespace volePSI
 
                 recver.mDebug = debug;
                 recver.setMultType(type);
-                recver.init(theirSize, set.size(), statSetParam, seed, mal, 1);
+                recver.init(theirSize, set.size(), statSetParam, seed, mal, numThreads);
                 macoro::sync_wait(recver.run(set, chl));
                 macoro::sync_wait(chl.flush());
 
@@ -556,6 +558,7 @@ namespace volePSI
             bool tls = cmd.isSet("tls");
             bool quiet = cmd.isSet("quiet");
             bool verbose = cmd.isSet("v");
+            int numThreads = cmd.getOr<int>("nt", 1);
 
             block seed;
             if (cmd.hasValue("seed"))
@@ -701,10 +704,11 @@ namespace volePSI
                     std::cout << "sender start\n";
                 std::cout << "sender size: " << size << std::endl;
                 std::cout << "receiver size: " << theirSize << std::endl;
-                sender.init(size, theirSize, byteLength, statSetParam, seed, 1);
+                sender.init(size, theirSize, byteLength, statSetParam, seed, numThreads);
                 std::cout << "Init done" << std::endl;
 
                 macoro::sync_wait(sender.send(identifiers, senderValues, ss, chl));
+                macoro::sync_wait(chl.flush());
                 std::cout << "send done" << std::endl;
                 std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
                 std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
@@ -720,10 +724,11 @@ namespace volePSI
                     std::cout << "receiver start\n";
                 std::cout << "sender size: " << theirSize << std::endl;
                 std::cout << "receiver size: " << size << std::endl;
-                recv.init(theirSize, size, byteLength, statSetParam, seed, 1);
+                recv.init(theirSize, size, byteLength, statSetParam, seed, numThreads);
                 std::cout << "Init done" << std::endl;
 
                 macoro::sync_wait(recv.receive(identifiers, rs, chl));  // set is the same as recvSet in here unlike in sender's version
+                macoro::sync_wait(chl.flush());
                 std::cout << "receive done" << std::endl;
                 std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
                 std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
@@ -731,7 +736,6 @@ namespace volePSI
                 writeShares(outPath, num_columns, rs.mFlagBits, rs.mValues);
                 writeMapping(outPath.substr(0, outPath.find_last_of('/') + 1) + "mapping.out", rs.mMapping);
             }
-            macoro::sync_wait(chl.flush());
 
             auto cpsiEnd = timer.setTimePoint("");
             std::cout << "Bytes sent: " << chl.bytesSent() << std::endl;
