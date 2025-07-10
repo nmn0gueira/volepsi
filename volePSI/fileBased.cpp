@@ -559,6 +559,7 @@ namespace volePSI
             bool quiet = cmd.isSet("quiet");
             bool verbose = cmd.isSet("v");
             u64 numThreads = cmd.getOr("nt", 1);
+            ValueShareType type = cmd.isSet("add32") ? ValueShareType::add32 : ValueShareType::Xor;
 
             block seed;
             if (cmd.hasValue("seed"))
@@ -704,7 +705,7 @@ namespace volePSI
                     std::cout << "sender start\n";
                 std::cout << "sender size: " << size << std::endl;
                 std::cout << "receiver size: " << theirSize << std::endl;
-                sender.init(size, theirSize, byteLength, statSetParam, seed, numThreads);
+                sender.init(size, theirSize, byteLength, statSetParam, seed, numThreads, type);
                 std::cout << "Init done" << std::endl;
 
                 macoro::sync_wait(sender.send(identifiers, senderValues, ss, chl));
@@ -724,7 +725,7 @@ namespace volePSI
                     std::cout << "receiver start\n";
                 std::cout << "sender size: " << theirSize << std::endl;
                 std::cout << "receiver size: " << size << std::endl;
-                recv.init(theirSize, size, byteLength, statSetParam, seed, numThreads);
+                recv.init(theirSize, size, byteLength, statSetParam, seed, numThreads, type);
                 std::cout << "Init done" << std::endl;
 
                 macoro::sync_wait(recv.receive(identifiers, rs, chl));  // set is the same as recvSet in here unlike in sender's version
