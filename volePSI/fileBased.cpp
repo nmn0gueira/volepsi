@@ -167,7 +167,7 @@ namespace volePSI
             }
             else
             {
-                for (auto i : intersection)
+            for (auto i : intersection)
                     file << i << "\n";
             }
         }
@@ -221,6 +221,7 @@ namespace volePSI
                 if (iter != fData.end())
                     beg.push_back(span<char>(iter, fData.end()));
 
+                
                 for (u64 i = 0; i < intersection.size(); ++i)
                 {
                     auto w = beg[intersection[i]];
@@ -234,6 +235,75 @@ namespace volePSI
             }
         }
     }
+
+    void sendFile(std::string inPath, FileType ft, coproto::Socket& chl) {
+        if (ft == FileType::Bin)
+        {
+            std::ifstream inFile(inPath, std::ios::binary);
+            if (!inFile.is_open())
+                throw std::runtime_error("failed to open intersection file: " + inPath);
+
+            inFile.seekg(0, std::ios::end);
+            size_t fileSize = inFile.tellg();
+            inFile.seekg(0, std::ios::beg);
+            std::vector<char> fileData(fileSize);
+            inFile.read(fileData.data(), fileSize);
+
+            macoro::sync_wait(chl.send(fileSize));
+            macoro::sync_wait(chl.send(fileData));
+        }
+        else if (ft == FileType::Csv)
+        {
+            std::ifstream inFile(inPath, std::ios::in);
+            if (!inFile.is_open())
+                throw std::runtime_error("failed to open intersection file: " + inPath);
+
+            std::string fileData((std::istreambuf_iterator<char>(inFile)),
+                                 std::istreambuf_iterator<char>());
+
+            macoro::sync_wait(chl.send(fileData.size()));
+            macoro::sync_wait(chl.send(fileData));
+        }
+        else
+        {
+            throw std::runtime_error("unknown file type");
+        }
+    }
+
+    void receiveFile(const std::string& outPath, FileType ft, coproto::Socket& chl)
+    {
+        if (ft == FileType::Bin)
+        {
+            size_t fileSize;
+            macoro::sync_wait(chl.recv(fileSize));
+            std::vector<char> fileData(fileSize);
+            macoro::sync_wait(chl.recv(fileData));
+
+            std::ofstream outFile(outPath, std::ios::binary);
+            if (!outFile.is_open())
+                throw std::runtime_error("failed to open the file: " + outPath);
+
+            outFile.write(fileData.data(), fileData.size());
+        }
+        else if (ft == FileType::Csv)
+        {
+            size_t fileSize;
+            macoro::sync_wait(chl.recv(fileSize));
+            std::string fileData(fileSize, '\0');
+            macoro::sync_wait(chl.recv(fileData));
+
+            std::ofstream outFile(outPath);
+            if (!outFile.is_open())
+                throw std::runtime_error("failed to open the file: " + outPath);
+
+            outFile << fileData;
+        }
+        else
+        {
+            throw std::runtime_error("unknown file type");
+        }
+    }
+
 
     void doFilePSI(const oc::CLP& cmd)
     {
@@ -389,12 +459,19 @@ namespace volePSI
                 sender.setMultType(type);
                 sender.init(set.size(), theirSize, statSetParam, seed, mal, numThreads);
                 macoro::sync_wait(sender.run(set, chl));
-                macoro::sync_wait(chl.flush());
 
                 auto psiEnd = timer.setTimePoint("");
+                
                 if (!quiet)
                     std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count()
-                    << "ms\nDone" << std::endl;
+                    << "ms\n Receiving intersection file and writing it to " << outPath << std::flush;
+                receiveFile(outPath, ft, chl);
+                macoro::sync_wait(chl.flush());
+
+                auto outEnd = timer.setTimePoint("");
+                if (!quiet)
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - psiEnd).count()
+                    << "ms\n" << std::flush;
             }
             else
             {
@@ -404,27 +481,35 @@ namespace volePSI
                 recver.setMultType(type);
                 recver.init(theirSize, set.size(), statSetParam, seed, mal, numThreads);
                 macoro::sync_wait(recver.run(set, chl));
-                macoro::sync_wait(chl.flush());
 
 
                 auto psiEnd = timer.setTimePoint("");
-                if (!quiet)
-                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count()
-                    << "ms\nWriting output to " << outPath << std::flush;
 
-                if (sortOutput)
+                if (sortOutput) {
+                    if (!quiet)
+                        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nSorting output " << std::flush;
                     counting_sort(recver.mIntersection.begin(), recver.mIntersection.end(), set.size());
+                }
 
+                auto sortEnd = timer.setTimePoint("");
+
+                if (!quiet)
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(sortEnd - psiEnd).count()
+                    << "ms\nWriting output to " << outPath << std::flush;
+                
                 writeOutput(outPath, ft, recver.mIntersection, indexOnly, path);
 
                 auto outEnd = timer.setTimePoint("");
                 if (!quiet)
-                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - psiEnd).count()
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - sortEnd).count()
                     << "ms\n" << std::flush;
 
 
                 if (verbose)
                     std::cout << "intesection_size = " << recver.mIntersection.size() << std::endl;
+                
+                sendFile(outPath, ft, chl);
+                macoro::sync_wait(chl.flush());
             }
 
         }
@@ -506,7 +591,6 @@ namespace volePSI
     {
         std::ofstream file;
 
-        // Open the output file in write mode, truncating any existing content
         file.open(outPath, std::ios::out | std::ios::trunc);
 
         if (file.is_open() == false)
