@@ -5,4 +5,4 @@ thirdparty/
 tests/cmakeTests/
 CMakeSettings.json
 ~/
-*.out
+data/
