@@ -332,7 +332,7 @@ namespace volePSI
             oc::Timer timer;
 
             if (!quiet)
-                std::cout << "reading set... " << std::flush;
+                std::cout << "Reading set... " << std::flush;
             auto readBegin = timer.setTimePoint("");
             std::vector<block> set = readSet(path, ft, debug);
             auto readEnd = timer.setTimePoint("");
@@ -341,7 +341,7 @@ namespace volePSI
 
 
             if (!quiet)
-                std::cout << "connecting as " << (tls ? "tls " : "") << (isServer ? "server" : "client") << " at address " << ip << std::flush;
+                std::cout << "Connecting as " << (tls ? "tls " : "") << (isServer ? "server" : "client") << " at address " << ip << "..." << std::flush;
             coproto::Socket chl;
             auto connBegin = timer.setTimePoint("");
             if (tls)
@@ -415,7 +415,7 @@ namespace volePSI
             auto valEnd = timer.setTimePoint("");
             if (!quiet)
                 std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count()
-                << "ms\nrunning PSI... " << std::flush;
+                << "ms\nRunning PSI... " << std::flush;
 
             if (r == Role::Sender)
             {
@@ -427,17 +427,20 @@ namespace volePSI
                 macoro::sync_wait(sender.run(set, chl));
 
                 auto psiEnd = timer.setTimePoint("");
-                
-                if (!quiet)
-                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count()
-                    << "ms\n Receiving intersection file and writing it to " << outPath << std::flush;
+
+                if (!quiet) {
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nBytes sent during PSI: " << chl.bytesSent() << std::flush;
+                    std::cout << "\nReceiving intersection output file and writing it to " << outPath << "..." << std::flush;
+                }        
                 receiveFile(outPath, ft, chl);
                 macoro::sync_wait(chl.flush());
 
                 auto outEnd = timer.setTimePoint("");
+
                 if (!quiet)
                     std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - psiEnd).count()
                     << "ms\n" << std::flush;
+                
             }
             else
             {
@@ -448,12 +451,11 @@ namespace volePSI
                 recver.init(theirSize, set.size(), statSetParam, seed, mal, numThreads);
                 macoro::sync_wait(recver.run(set, chl));
 
-
                 auto psiEnd = timer.setTimePoint("");
 
                 if (sortOutput) {
                     if (!quiet)
-                        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nSorting output " << std::flush;
+                        std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nSorting output... " << std::flush;
                     counting_sort(recver.mIntersection.begin(), recver.mIntersection.end(), set.size());
                 }
 
@@ -461,21 +463,26 @@ namespace volePSI
 
                 if (!quiet)
                     std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(sortEnd - psiEnd).count()
-                    << "ms\nWriting output to " << outPath << std::flush;
+                    << "ms\nWriting output to " << outPath << "..." << std::flush;
                 
                 std::vector<char> outputData = writeOutput(outPath, ft, recver.mIntersection, indexOnly, path);
 
                 auto outEnd = timer.setTimePoint("");
-                if (!quiet)
-                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - sortEnd).count()
-                    << "ms\n" << std::flush;
+                if (!quiet) {
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - sortEnd).count() << "ms\nBytes sent during PSI: " << chl.bytesSent() << std::flush;
+                    std::cout << "\nSending output file..." << std::flush;
+                }
 
+                sendFile(outputData, chl);
+                macoro::sync_wait(chl.flush());
+                
+                auto sendEnd = timer.setTimePoint("");
+                if (!quiet)
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(sendEnd - outEnd).count()
+                    << "ms\n" << std::flush;
 
                 if (verbose)
                     std::cout << "intesection_size = " << recver.mIntersection.size() << std::endl;
-                
-                sendFile(outputData, chl);
-                macoro::sync_wait(chl.flush());
             }
 
         }
@@ -575,7 +582,6 @@ namespace volePSI
         }
 
         file.close();
-        std::cout << "CSV written to " << outPath << std::endl;
     }
 
     void writeMapping(std::string outPath, const std::vector<u64>& mMapping)
@@ -594,7 +600,6 @@ namespace volePSI
         }
 
         file.close();
-        std::cout << "CSV written to " << outPath << std::endl;
     }
 
 
@@ -607,7 +612,6 @@ namespace volePSI
             bool debug = cmd.isSet("debug");
             bool tls = cmd.isSet("tls");
             bool quiet = cmd.isSet("quiet");
-            bool verbose = cmd.isSet("v");
             u64 numThreads = cmd.getOr("nt", 1);
             ValueShareType type = cmd.isSet("add32") ? ValueShareType::add32 : ValueShareType::Xor;
 
@@ -635,7 +639,7 @@ namespace volePSI
             osuCrypto::Timer timer;
 
             if (!quiet)
-                std::cout << "reading csv... " << std::flush;
+                std::cout << "Reading csv... " << std::flush;
             auto readBegin = timer.setTimePoint("");
 
             std::pair<std::vector<block>, std::vector<std::vector<block>>> set = readCSV(path, debug);
@@ -647,7 +651,7 @@ namespace volePSI
                 std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(readEnd - readBegin).count() << "ms" << std::endl;
 
             if (!quiet)
-                std::cout << "connecting as " << (tls ? "tls " : "") << (isServer ? "server" : "client") << " at address " << ip << std::flush;
+                std::cout << "Connecting as " << (tls ? "tls " : "") << (isServer ? "server" : "client") << " at address " << ip << "..." << std::flush;
             coproto::Socket chl;
             auto connBegin = timer.setTimePoint("");
             if (tls)
@@ -729,10 +733,9 @@ namespace volePSI
             auto valEnd = timer.setTimePoint("");
 
             if (!quiet)
-                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nrunning CPSI... " << std::flush;
+                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nRunning CPSI... " << std::flush;
             
             auto byteLength = num_columns * sizeof(block);
-
 
             if (r == Role::Sender)
             {
@@ -751,47 +754,65 @@ namespace volePSI
                     std::memcpy(senderValues.data() + row * byteLength, valueRow.data(), byteLength);      
                 }
 
-                if (verbose)
-                    std::cout << "sender start\n";
-                std::cout << "sender size: " << size << std::endl;
-                std::cout << "receiver size: " << theirSize << std::endl;
                 sender.init(size, theirSize, byteLength, statSetParam, seed, numThreads, type);
-                std::cout << "Init done" << std::endl;
 
                 macoro::sync_wait(sender.send(identifiers, senderValues, ss, chl));
                 macoro::sync_wait(chl.flush());
-                std::cout << "send done" << std::endl;
-                std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
-                std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
-                std::cout << "sShare.mMapping size: " << ss.mMapping.size() << std::endl;
+
+                auto cpsiEnd = timer.setTimePoint("");
+
+                if (!quiet)
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(cpsiEnd - valEnd).count()
+                    << "ms\nWriting shares to " << outPath << "..." << std::flush;
+
                 writeShares(outPath, num_columns, ss.mFlagBits, ss.mValues);
+                auto outEnd = timer.setTimePoint("");
+                if (!quiet)
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - cpsiEnd).count()
+                    << "ms\nBytes sent: " << chl.bytesSent() << std::endl << std::flush;
+                
+                if (debug) {
+                    std::cout << "sShare.mValues rows: " << ss.mValues.rows() << ", cols: " << ss.mValues.cols() << std::endl;
+                    std::cout << "sShare.mFlagBits size: " << ss.mFlagBits.size() << std::endl;
+                    std::cout << "sShare.mMapping size: " << ss.mMapping.size() << std::endl;
+                }                
             }
             else
             {
                 RsCpsiReceiver recv;
                 RsCpsiReceiver::Sharing rs;
-
-                if (verbose)
-                    std::cout << "receiver start\n";
-                std::cout << "sender size: " << theirSize << std::endl;
-                std::cout << "receiver size: " << size << std::endl;
                 recv.init(theirSize, size, byteLength, statSetParam, seed, numThreads, type);
-                std::cout << "Init done" << std::endl;
 
-                macoro::sync_wait(recv.receive(identifiers, rs, chl));  // set is the same as recvSet in here unlike in sender's version
+                macoro::sync_wait(recv.receive(identifiers, rs, chl));
                 macoro::sync_wait(chl.flush());
-                std::cout << "receive done" << std::endl;
-                std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
-                std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
-                std::cout << "rShare.mMapping size: " << rs.mMapping.size() << std::endl;
-                writeShares(outPath, num_columns, rs.mFlagBits, rs.mValues);
-                writeMapping(outPath.substr(0, outPath.find_last_of('/') + 1) + "mapping.out", rs.mMapping);
-            }
 
-            auto cpsiEnd = timer.setTimePoint("");
-            std::cout << "Bytes sent: " << chl.bytesSent() << std::endl;
-            if (!quiet)
-                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(cpsiEnd - valEnd).count() << "ms\nDone" << std::endl;
+                auto cpsiEnd = timer.setTimePoint("");
+
+                if (!quiet)
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(cpsiEnd - valEnd).count()
+                    << "ms\nWriting shares to " << outPath << "..." << std::flush;
+
+                writeShares(outPath, num_columns, rs.mFlagBits, rs.mValues);
+                auto outSharesEnd = timer.setTimePoint("");
+                
+                std::string mappingPath = outPath.substr(0, outPath.find_last_of('/') + 1) + "mapping.out";
+                if (!quiet)
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(outSharesEnd - cpsiEnd).count()
+                    << "ms\nWriting mapping to " << mappingPath << "..." << std::flush;
+                
+                writeMapping(mappingPath, rs.mMapping);
+                auto outMappingEnd = timer.setTimePoint("");
+                if (!quiet)
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outMappingEnd - outSharesEnd).count()
+                    << "ms\nBytes sent: " << chl.bytesSent() << std::endl << std::flush;
+
+                if (debug) {
+                    std::cout << "rShare.mValues rows: " << rs.mValues.rows() << ", cols: " << rs.mValues.cols() << std::endl;
+                    std::cout << "rShare.mFlagBits size: " << rs.mFlagBits.size() << std::endl;
+                    std::cout << "rShare.mMapping size: " << rs.mMapping.size() << std::endl;
+                } 
+              
+            }
         }
         catch (std::exception& e)
         {
