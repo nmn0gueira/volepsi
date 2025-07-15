@@ -251,25 +251,6 @@ namespace volePSI
         return outputData;
     }
 
-    void sendFile(const std::vector<char>& outputData, coproto::Socket& chl) {
-        macoro::sync_wait(chl.send(outputData.size()));
-        macoro::sync_wait(chl.send(outputData));
-    }
-
-    void receiveFile(const std::string& outPath, FileType ft, coproto::Socket& chl)
-    {
-        size_t fileSize;
-        macoro::sync_wait(chl.recv(fileSize));
-        std::vector<char> fileData(fileSize);
-        macoro::sync_wait(chl.recv(fileData));
-
-        std::ofstream outFile(outPath, (ft == FileType::Bin) ? std::ios::binary : std::ios::out);
-        if (!outFile.is_open())
-            throw std::runtime_error("failed to open the file: " + outPath);
-
-        outFile.write(fileData.data(), fileSize);
-    }
-
 
     void doFilePSI(const oc::CLP& cmd)
     {
@@ -427,19 +408,32 @@ namespace volePSI
                 macoro::sync_wait(sender.run(set, chl));
 
                 auto psiEnd = timer.setTimePoint("");
+                auto psiBytesSent = chl.bytesSent();
 
                 if (!quiet) {
-                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nBytes sent during PSI: " << chl.bytesSent() << std::flush;
-                    std::cout << "\nReceiving intersection output file and writing it to " << outPath << "..." << std::flush;
-                }        
-                receiveFile(outPath, ft, chl);
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nReceiving output file..." << std::flush;
+                }
+
+                size_t fileSize;
+                macoro::sync_wait(chl.recv(fileSize));
+                std::vector<char> fileData(fileSize);
+                macoro::sync_wait(chl.recv(fileData));
                 macoro::sync_wait(chl.flush());
 
+                auto recvEnd = timer.setTimePoint("");
+                if (!quiet)
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(recvEnd - psiEnd).count() << "ms\nWriting output to " << outPath << "..." << std::flush;
+
+                std::ofstream outFile(outPath, (ft == FileType::Bin) ? std::ios::binary : std::ios::out);
+                if (!outFile.is_open())
+                    throw std::runtime_error("failed to open the file: " + outPath);
+
+                outFile.write(fileData.data(), fileSize);
                 auto outEnd = timer.setTimePoint("");
 
                 if (!quiet)
-                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - psiEnd).count()
-                    << "ms\n" << std::flush;
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - recvEnd).count()
+                    << "ms\nBytes sent (PSI only): " << psiBytesSent << std::endl << std::flush;
                 
             }
             else
@@ -452,6 +446,7 @@ namespace volePSI
                 macoro::sync_wait(recver.run(set, chl));
 
                 auto psiEnd = timer.setTimePoint("");
+                auto psiBytesSent = chl.bytesSent();
 
                 if (sortOutput) {
                     if (!quiet)
@@ -469,20 +464,20 @@ namespace volePSI
 
                 auto outEnd = timer.setTimePoint("");
                 if (!quiet) {
-                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - sortEnd).count() << "ms\nBytes sent during PSI: " << chl.bytesSent() << std::flush;
-                    std::cout << "\nSending output file..." << std::flush;
+                    std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(outEnd - sortEnd).count() << "ms\nSending output file..." << std::flush;
                 }
 
-                sendFile(outputData, chl);
+                macoro::sync_wait(chl.send(outputData.size()));
+                macoro::sync_wait(chl.send(outputData));
                 macoro::sync_wait(chl.flush());
                 
                 auto sendEnd = timer.setTimePoint("");
                 if (!quiet)
                     std::cout << " " << std::chrono::duration_cast<std::chrono::milliseconds>(sendEnd - outEnd).count()
-                    << "ms\n" << std::flush;
+                    << "ms\nBytes sent (PSI only): " << psiBytesSent << std::endl << std::flush;
 
                 if (verbose)
-                    std::cout << "intesection_size = " << recver.mIntersection.size() << std::endl;
+                    std::cout << "Intesection size: " << recver.mIntersection.size() << std::endl;
             }
 
         }
