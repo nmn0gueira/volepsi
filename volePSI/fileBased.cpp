@@ -146,9 +146,8 @@ namespace volePSI
         }
     }
 
-    std::vector<char> writeOutput(const std::string& outPath, FileType ft, const std::vector<u64>& intersection, bool indexOnly, std::string inPath)
+    void writeOutput(std::string outPath, FileType ft, const std::vector<u64>& intersection, bool indexOnly, std::string inPath)
     {
-        std::vector<char> outputData;
         std::ofstream file;
 
         if (ft == FileType::Bin)
@@ -165,24 +164,16 @@ namespace volePSI
             if (ft == FileType::Bin)
             {
                 file.write((char*)intersection.data(), intersection.size() * sizeof(u64));
-                outputData.resize(intersection.size() * sizeof(u64));
-                std::memcpy(outputData.data(), intersection.data(), intersection.size() * sizeof(u64));
             }
             else
             {
-                std::ostringstream oss;
-
-                for (auto i : intersection) {
+            for (auto i : intersection)
                     file << i << "\n";
-                    oss << i << "\n";
-                }           
-
-                std::string str = oss.str();
-                outputData.assign(std::make_move_iterator(str.begin()), std::make_move_iterator(str.end()));
             }
         }
         else
         {
+            //std::set<u64> set(intersection.begin(), intersection.end());
             if (ft == FileType::Bin)
             {
                 std::ifstream inFile(inPath, std::ios::binary | std::ios::in);
@@ -195,12 +186,9 @@ namespace volePSI
                 auto n = size / 16;
                 std::vector<block> fData(n);
                 inFile.read((char*)fData.data(), size);
-                outputData.resize(intersection.size() * sizeof(block));
                 for (u64 i = 0; i < intersection.size(); ++i)
                 {
                     file.write((char*)fData[intersection[i]].data(), sizeof(block));
-                    memcpy(outputData.data() + (i * sizeof(block)), fData[intersection[i]].data(), sizeof(block));
-
                 }
 
             }
@@ -230,44 +218,87 @@ namespace volePSI
                 if (iter != fData.end())
                     beg.push_back(span<char>(iter, fData.end()));
 
-                std::ostringstream oss;
+                
                 for (u64 i = 0; i < intersection.size(); ++i)
                 {
                     auto w = beg[intersection[i]];
                     file.write(w.data(), w.size());
                     file << '\n';
-                    oss.write(w.data(), w.size());
-                    oss << '\n';
                 }
-
-                std::string str = oss.str();
-                outputData.assign(std::make_move_iterator(str.begin()), std::make_move_iterator(str.end()));
             }
             else
             {
                 throw std::runtime_error("unknown file type");
             }
         }
-        return outputData;
     }
 
-    void sendFile(const std::vector<char>& outputData, coproto::Socket& chl) {
-        macoro::sync_wait(chl.send(outputData.size()));
-        macoro::sync_wait(chl.send(outputData));
+    void sendFile(std::string inPath, FileType ft, coproto::Socket& chl) {
+        if (ft == FileType::Bin)
+        {
+            std::ifstream inFile(inPath, std::ios::binary);
+            if (!inFile.is_open())
+                throw std::runtime_error("failed to open intersection file: " + inPath);
+
+            inFile.seekg(0, std::ios::end);
+            size_t fileSize = inFile.tellg();
+            inFile.seekg(0, std::ios::beg);
+            std::vector<char> fileData(fileSize);
+            inFile.read(fileData.data(), fileSize);
+
+            macoro::sync_wait(chl.send(fileSize));
+            macoro::sync_wait(chl.send(fileData));
+        }
+        else if (ft == FileType::Csv)
+        {
+            std::ifstream inFile(inPath, std::ios::in);
+            if (!inFile.is_open())
+                throw std::runtime_error("failed to open intersection file: " + inPath);
+
+            std::string fileData((std::istreambuf_iterator<char>(inFile)),
+                                 std::istreambuf_iterator<char>());
+
+            macoro::sync_wait(chl.send(fileData.size()));
+            macoro::sync_wait(chl.send(fileData));
+        }
+        else
+        {
+            throw std::runtime_error("unknown file type");
+        }
     }
 
     void receiveFile(const std::string& outPath, FileType ft, coproto::Socket& chl)
     {
-        size_t fileSize;
-        macoro::sync_wait(chl.recv(fileSize));
-        std::vector<char> fileData(fileSize);
-        macoro::sync_wait(chl.recv(fileData));
+        if (ft == FileType::Bin)
+        {
+            size_t fileSize;
+            macoro::sync_wait(chl.recv(fileSize));
+            std::vector<char> fileData(fileSize);
+            macoro::sync_wait(chl.recv(fileData));
 
-        std::ofstream outFile(outPath, (ft == FileType::Bin) ? std::ios::binary : std::ios::out);
-        if (!outFile.is_open())
-            throw std::runtime_error("failed to open the file: " + outPath);
+            std::ofstream outFile(outPath, std::ios::binary);
+            if (!outFile.is_open())
+                throw std::runtime_error("failed to open the file: " + outPath);
 
-        outFile.write(fileData.data(), fileSize);
+            outFile.write(fileData.data(), fileData.size());
+        }
+        else if (ft == FileType::Csv)
+        {
+            size_t fileSize;
+            macoro::sync_wait(chl.recv(fileSize));
+            std::string fileData(fileSize, '\0');
+            macoro::sync_wait(chl.recv(fileData));
+
+            std::ofstream outFile(outPath);
+            if (!outFile.is_open())
+                throw std::runtime_error("failed to open the file: " + outPath);
+
+            outFile << fileData;
+        }
+        else
+        {
+            throw std::runtime_error("unknown file type");
+        }
     }
 
 
@@ -463,7 +494,7 @@ namespace volePSI
                     std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(sortEnd - psiEnd).count()
                     << "ms\nWriting output to " << outPath << std::flush;
                 
-                std::vector<char> outputData = writeOutput(outPath, ft, recver.mIntersection, indexOnly, path);
+                writeOutput(outPath, ft, recver.mIntersection, indexOnly, path);
 
                 auto outEnd = timer.setTimePoint("");
                 if (!quiet)
@@ -474,7 +505,7 @@ namespace volePSI
                 if (verbose)
                     std::cout << "intesection_size = " << recver.mIntersection.size() << std::endl;
                 
-                sendFile(outputData, chl);
+                sendFile(outPath, ft, chl);
                 macoro::sync_wait(chl.flush());
             }
 
