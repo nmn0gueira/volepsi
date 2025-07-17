@@ -411,7 +411,7 @@ namespace volePSI
                 auto psiBytesSent = chl.bytesSent();
 
                 if (!quiet) {
-                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nReceiving output file..." << std::flush;
+                    std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(psiEnd - valEnd).count() << "ms\nReceiving output file (includes wait time)..." << std::flush;
                 }
 
                 size_t fileSize;
@@ -727,8 +727,10 @@ namespace volePSI
             
             auto valEnd = timer.setTimePoint("");
 
-            if (!quiet)
-                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nRunning CPSI... " << std::flush;
+            if (!quiet) {
+                std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(valEnd - connEnd).count() << "ms\nRunning CPSI (" 
+                << (type == ValueShareType::Xor ? "XOR" : "additive") << " sharing)... " << std::flush;
+            }
             
             auto byteLength = num_columns * sizeof(block);
 
